@@ -4,6 +4,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { Header } from './components/Header';
 import { Home } from './components/Home';
 import { Room } from './components/Room';
+import { NotFound } from './components/NotFound';
 import { Toaster } from './components/ui/sonner';
 
 
@@ -18,6 +19,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/room/:id" element={<Room />} />
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </main>
             <Toaster />

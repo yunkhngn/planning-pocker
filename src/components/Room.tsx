@@ -5,8 +5,14 @@ import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
 import { doc, onSnapshot, collection, updateDoc, setDoc, query } from 'firebase/firestore';
 import { Input } from './ui/input';
-import { Share, User as UserIcon } from 'lucide-react';
+import { Share, User as UserIcon, Timer } from 'lucide-react';
 import { toast } from "sonner";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 const FIBONACCI_CARDS = ['0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?', '☕'];
 
@@ -18,6 +24,7 @@ export function Room() {
     const [users, setUsers] = useState<any[]>([]);
     const [showNameDialog, setShowNameDialog] = useState(false);
     const [temporaryName, setTemporaryName] = useState('');
+    const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
     // Check display name and auth state
     useEffect(() => {
@@ -72,6 +79,31 @@ export function Room() {
         }
     }, [user, displayName, roomId]);
 
+    // Timer Effect
+    useEffect(() => {
+        if (!room?.timerEndsAt || room.revealed) {
+            setTimeLeft(null);
+            return;
+        }
+
+        const intervalId = setInterval(() => {
+            const remaining = Math.max(0, Math.ceil((room.timerEndsAt - Date.now()) / 1000));
+            setTimeLeft(remaining);
+
+            if (remaining === 0) {
+                clearInterval(intervalId);
+                if (!room.revealed) {
+                    toggleReveal();
+                }
+            }
+        }, 1000);
+
+        // Initial tick
+        setTimeLeft(Math.max(0, Math.ceil((room.timerEndsAt - Date.now()) / 1000)));
+
+        return () => clearInterval(intervalId);
+    }, [room?.timerEndsAt, room?.revealed]);
+
     const handleSaveName = async () => {
         if (temporaryName.trim()) {
             if (!user) {
@@ -117,18 +149,36 @@ export function Room() {
         }
     };
 
+    const startTimer = async (seconds: number) => {
+        if (!roomId) return;
+        try {
+            const roomRef = doc(db, 'rooms', roomId);
+            const timerObj = seconds > 0
+                ? { timerEndsAt: Date.now() + seconds * 1000, revealed: false }
+                : { timerEndsAt: null }; // Cancel timer logic
+            await updateDoc(roomRef, timerObj);
+        } catch (e) {
+            console.warn("Timer mocked");
+            setRoom((prev: any) => ({
+                ...prev,
+                timerEndsAt: seconds > 0 ? Date.now() + seconds * 1000 : null,
+                revealed: false
+            }));
+        }
+    };
+
     const resetVotes = async () => {
         if (!roomId) return;
         try {
             const roomRef = doc(db, 'rooms', roomId);
-            await updateDoc(roomRef, { revealed: false });
+            await updateDoc(roomRef, { revealed: false, timerEndsAt: null });
             // Reset each user's vote
             for (const u of users) {
                 const userDoc = doc(db, 'rooms', roomId, 'users', u.id);
                 await updateDoc(userDoc, { vote: null });
             }
         } catch (e) {
-            setRoom((prev: any) => ({ ...prev, revealed: false }));
+            setRoom((prev: any) => ({ ...prev, revealed: false, timerEndsAt: null }));
             setUsers(prev => prev.map(u => ({ ...u, vote: null })));
         }
     }
@@ -175,15 +225,36 @@ export function Room() {
 
                     {/* Oval Table */}
                     <div className="w-[600px] max-w-full h-64 bg-slate-200/60 dark:bg-slate-800/60 rounded-[100px] border-8 border-slate-300 dark:border-slate-700 shadow-inner flex flex-col items-center justify-center relative mt-20 mb-12 transition-colors duration-300">
-                        <div className="space-y-4">
+                        <div className="space-y-4 flex flex-col items-center z-10">
                             {room.revealed ? (
                                 <Button onClick={resetVotes} className="bg-blue-600 hover:bg-blue-700 font-semibold px-8 py-6 rounded-full shadow-lg">
                                     Start new voting
                                 </Button>
                             ) : (
-                                <Button onClick={toggleReveal} className="bg-blue-600 hover:bg-blue-700 font-semibold px-8 py-6 rounded-full shadow-lg">
-                                    Reveal cards
-                                </Button>
+                                <div className="flex gap-2">
+                                    <Button onClick={toggleReveal} className="bg-blue-600 hover:bg-blue-700 font-semibold px-8 py-6 rounded-full shadow-lg">
+                                        Reveal cards
+                                    </Button>
+
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="outline" className="px-4 py-6 rounded-full shadow-lg bg-white dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 hover:bg-gray-50 dark:hover:bg-zinc-700">
+                                                <Timer size={20} className={timeLeft !== null && timeLeft > 0 ? "text-blue-500 animate-pulse" : "text-gray-500"} />
+                                                {timeLeft !== null && timeLeft > 0 && (
+                                                    <span className="ml-2 font-mono text-lg font-bold text-blue-600 dark:text-blue-400">{timeLeft}s</span>
+                                                )}
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="center">
+                                            <DropdownMenuItem onClick={() => startTimer(10)}>10 Seconds</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => startTimer(20)}>20 Seconds</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => startTimer(30)}>30 Seconds</DropdownMenuItem>
+                                            {room?.timerEndsAt && (
+                                                <DropdownMenuItem onClick={() => startTimer(0)} className="text-red-500 focus:text-red-600">Cancel Timer</DropdownMenuItem>
+                                            )}
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </div>
                             )}
                         </div>
 
