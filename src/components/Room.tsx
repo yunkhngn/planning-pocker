@@ -35,7 +35,7 @@ export function Room() {
 
     // Firestore Subscriptions
     useEffect(() => {
-        if (!roomId) return;
+        if (!roomId || !user) return;
 
         // Subscribe to Room details (Mock wrapper logic to avoid crash if no Firebase)
         try {
@@ -65,7 +65,7 @@ export function Room() {
                 { id: '2', name: 'Bob', vote: null },
             ]);
         }
-    }, [roomId]);
+    }, [roomId, user]);
 
     // Join Room implicitly when user exists and has a name
     useEffect(() => {
