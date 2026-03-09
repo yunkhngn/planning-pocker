@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from './ui/button';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, onSnapshot, collection, updateDoc, setDoc, query } from 'firebase/firestore';
+import { doc, onSnapshot, collection, updateDoc, setDoc, query, deleteDoc } from 'firebase/firestore';
 import { Input } from './ui/input';
-import { Share, User as UserIcon, Timer } from 'lucide-react';
+import { Share, User as UserIcon, Timer, LogOut } from 'lucide-react';
 import { toast } from "sonner";
 import {
     DropdownMenu,
@@ -18,6 +18,7 @@ const FIBONACCI_CARDS = ['0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '
 
 export function Room() {
     const { id: roomId } = useParams<{ id: string }>();
+    const navigate = useNavigate();
     const { user, displayName, updateDisplayName, signIn } = useAuth();
 
     const [room, setRoom] = useState<any>({ name: 'Loading...', revealed: false });
@@ -25,6 +26,7 @@ export function Room() {
     const [showNameDialog, setShowNameDialog] = useState(false);
     const [temporaryName, setTemporaryName] = useState('');
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
+    const [isJoining, setIsJoining] = useState(false);
 
     // Check display name and auth state
     useEffect(() => {
@@ -105,14 +107,30 @@ export function Room() {
     }, [room?.timerEndsAt, room?.revealed]);
 
     const handleSaveName = async () => {
-        if (temporaryName.trim()) {
+        if (!temporaryName.trim() || isJoining) return;
+        setIsJoining(true);
+        try {
             if (!user) {
                 await signIn(temporaryName);
             } else {
                 updateDisplayName(temporaryName);
             }
             setShowNameDialog(false);
+        } finally {
+            setIsJoining(false);
         }
+    };
+
+    const handleLeaveRoom = async () => {
+        if (user && roomId) {
+            try {
+                const userDocRef = doc(db, 'rooms', roomId, 'users', user.uid);
+                await deleteDoc(userDocRef);
+            } catch (e) {
+                console.error("Error leaving room", e);
+            }
+        }
+        navigate('/');
     };
 
     // Remove user from room on close
@@ -120,7 +138,8 @@ export function Room() {
         const handleUnload = () => {
             if (user?.uid && roomId) {
                 // Best effort to remove user from active room list on tab close
-                // The AuthContext already handles deleting the anonymous account.
+                const userDocRef = doc(db, 'rooms', roomId, 'users', user.uid);
+                deleteDoc(userDocRef).catch(() => { });
             }
         };
         window.addEventListener('beforeunload', handleUnload);
@@ -203,8 +222,8 @@ export function Room() {
                             onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
                             className="py-6 text-lg dark:bg-zinc-800 dark:border-zinc-700"
                         />
-                        <Button onClick={handleSaveName} className="w-full bg-blue-600 hover:bg-blue-700 py-6 text-lg">
-                            Continue
+                        <Button onClick={handleSaveName} disabled={isJoining} className="w-full bg-blue-600 hover:bg-blue-700 py-6 text-lg disabled:opacity-70">
+                            {isJoining ? 'Joining...' : 'Continue'}
                         </Button>
                     </div>
                 </div>
@@ -213,10 +232,16 @@ export function Room() {
             {/* Top Bar for Room Name and Invite */}
             <div className="h-16 border-b dark:border-zinc-800 bg-white dark:bg-zinc-900 flex items-center justify-between px-6 shadow-sm transition-colors duration-300">
                 <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{room.name}</h2>
-                <Button variant="outline" onClick={copyInviteLink} className="gap-2 font-medium text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:hover:bg-blue-900/40 dark:text-blue-400">
-                    <Share size={16} />
-                    Invite players
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={copyInviteLink} className="gap-2 font-medium text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:hover:bg-blue-900/40 dark:text-blue-400">
+                        <Share size={16} />
+                        Invite players
+                    </Button>
+                    <Button variant="ghost" onClick={handleLeaveRoom} className="gap-2 font-medium text-gray-600 hover:text-red-600 hover:bg-red-50 dark:text-gray-400 dark:hover:text-red-400 dark:hover:bg-red-900/20 px-3">
+                        <LogOut size={16} />
+                        <span className="hidden sm:inline">Leave Room</span>
+                    </Button>
+                </div>
             </div>
 
             <div className="flex-1 flex flex-col pt-12">
