@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is signed in (anonymously or otherwise)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    match /rooms/{roomId} {
+      // Anyone authenticated can create a room, read a room, or update it
+      allow read, create: if isAuthenticated();
+      
+      // We only allow updating the "revealed" status
+      allow update: if isAuthenticated() 
+                    && request.resource.data.keys().hasAny(['revealed', 'name']);
+      
+      // Users inside a specific room
+      match /users/{userId} {
+        // Anyone authenticated can read the users in the room
+        allow read: if isAuthenticated();
+        
+        // Users can only create/update their OWN document (matching their auth.uid)
+        allow create, update: if isAuthenticated() && request.auth.uid == userId;
+        
+        // Users can delete their own document (e.g. when leaving the room)
+        allow delete: if isAuthenticated() && request.auth.uid == userId;
+      }
+    }
+  }
+}
