@@ -6,6 +6,7 @@ import { db } from '../lib/firebase';
 import { doc, onSnapshot, collection, updateDoc, setDoc, query } from 'firebase/firestore';
 import { Input } from './ui/input';
 import { Share, User as UserIcon } from 'lucide-react';
+import { toast } from "sonner";
 
 const FIBONACCI_CARDS = ['0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?', '☕'];
 
@@ -134,23 +135,23 @@ export function Room() {
 
     const copyInviteLink = () => {
         navigator.clipboard.writeText(window.location.href);
-        alert('Invite link copied to clipboard!');
+        toast.success('Invite link copied to clipboard!');
     };
 
     return (
-        <div className="flex-1 flex flex-col bg-gray-50/50">
+        <div className="flex-1 flex flex-col bg-gray-50/50 dark:bg-zinc-950 transition-colors duration-300">
             {/* Name Dialog Overlay */}
             {showNameDialog && (
                 <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-white rounded-xl shadow-2xl p-8 max-w-sm w-full space-y-6">
-                        <h2 className="text-2xl font-bold text-center">Choose your display name</h2>
+                    <div className="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl p-8 max-w-sm w-full space-y-6">
+                        <h2 className="text-2xl font-bold text-center dark:text-white">Choose your display name</h2>
                         <Input
                             autoFocus
                             placeholder="Your name"
                             value={temporaryName}
                             onChange={(e) => setTemporaryName(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
-                            className="py-6 text-lg"
+                            className="py-6 text-lg dark:bg-zinc-800 dark:border-zinc-700"
                         />
                         <Button onClick={handleSaveName} className="w-full bg-blue-600 hover:bg-blue-700 py-6 text-lg">
                             Continue
@@ -160,9 +161,9 @@ export function Room() {
             )}
 
             {/* Top Bar for Room Name and Invite */}
-            <div className="h-16 border-b bg-white flex items-center justify-between px-6 shadow-sm">
-                <h2 className="text-lg font-semibold text-gray-800">{room.name}</h2>
-                <Button variant="outline" onClick={copyInviteLink} className="gap-2 font-medium text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:text-blue-700">
+            <div className="h-16 border-b dark:border-zinc-800 bg-white dark:bg-zinc-900 flex items-center justify-between px-6 shadow-sm transition-colors duration-300">
+                <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{room.name}</h2>
+                <Button variant="outline" onClick={copyInviteLink} className="gap-2 font-medium text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100 hover:text-blue-700 dark:bg-blue-900/20 dark:border-blue-800 dark:hover:bg-blue-900/40 dark:text-blue-400">
                     <Share size={16} />
                     Invite players
                 </Button>
@@ -173,7 +174,7 @@ export function Room() {
                 <div className="flex-1 max-w-5xl w-full mx-auto p-4 flex flex-col items-center relative min-h-[400px]">
 
                     {/* Oval Table */}
-                    <div className="w-[600px] max-w-full h-64 bg-slate-200/60 rounded-[100px] border-8 border-slate-300 shadow-inner flex flex-col items-center justify-center relative mt-20 mb-12">
+                    <div className="w-[600px] max-w-full h-64 bg-slate-200/60 dark:bg-slate-800/60 rounded-[100px] border-8 border-slate-300 dark:border-slate-700 shadow-inner flex flex-col items-center justify-center relative mt-20 mb-12 transition-colors duration-300">
                         <div className="space-y-4">
                             {room.revealed ? (
                                 <Button onClick={resetVotes} className="bg-blue-600 hover:bg-blue-700 font-semibold px-8 py-6 rounded-full shadow-lg">
@@ -204,7 +205,7 @@ export function Room() {
                                 <div key={u.id} className={`absolute flex flex-col items-center gap-2 ${positionClasses}`}>
                                     {/* The Card */}
                                     {u.vote ? (
-                                        <div className={`w-14 h-20 rounded-lg flex items-center justify-center shadow-md border-2 transition-all ${room.revealed ? 'bg-white border-blue-200 text-blue-600' : 'bg-blue-500 border-blue-600'}`}>
+                                        <div className={`w-14 h-20 rounded-lg flex items-center justify-center shadow-md border-2 transition-all ${room.revealed ? 'bg-white dark:bg-zinc-800 border-blue-200 dark:border-zinc-600 text-blue-600 dark:text-blue-400' : 'bg-blue-500 dark:bg-blue-700 border-blue-600 dark:border-blue-800'}`}>
                                             {room.revealed ? (
                                                 <span className="text-xl font-bold">{u.vote}</span>
                                             ) : (
@@ -212,13 +213,13 @@ export function Room() {
                                             )}
                                         </div>
                                     ) : (
-                                        <div className="w-14 h-20 rounded-lg border-2 border-dashed border-gray-300 bg-gray-50" />
+                                        <div className="w-14 h-20 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-zinc-800/50" />
                                     )}
 
                                     {/* The Player Info */}
-                                    <div className="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-full shadow-sm border text-sm font-medium whitespace-nowrap">
-                                        <UserIcon size={14} className="text-gray-400" />
-                                        <span className="text-gray-700 max-w-[100px] truncate">{u.name}{isMe ? ' (You)' : ''}</span>
+                                    <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-full shadow-sm border dark:border-zinc-800 text-sm font-medium whitespace-nowrap transition-colors duration-300">
+                                        <UserIcon size={14} className="text-gray-400 dark:text-gray-500" />
+                                        <span className="text-gray-700 dark:text-gray-300 max-w-[100px] truncate">{u.name}{isMe ? ' (You)' : ''}</span>
                                     </div>
                                 </div>
                             )
@@ -229,9 +230,9 @@ export function Room() {
 
                 {/* Voting Cards Section (Bottom Dock) */}
                 {!room.revealed && (
-                    <div className="w-full bg-white border-t p-6 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] pt-8 pb-10">
+                    <div className="w-full bg-white dark:bg-zinc-900 border-t dark:border-zinc-800 p-6 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] dark:shadow-[0_-4px_20px_rgba(0,0,0,0.4)] pt-8 pb-10 transition-colors duration-300">
                         <div className="max-w-6xl mx-auto flex items-center justify-center flex-wrap gap-2 md:gap-4">
-                            <span className="w-full text-center text-gray-500 font-medium mb-2 uppercase tracking-wide text-xs">Choose your card</span>
+                            <span className="w-full text-center text-gray-500 dark:text-gray-400 font-medium mb-2 uppercase tracking-wide text-xs">Choose your card</span>
                             {FIBONACCI_CARDS.map(cardVal => {
                                 const myVote = users.find(u => u.id === user?.uid)?.vote;
                                 const isSelected = myVote === cardVal;
@@ -240,8 +241,8 @@ export function Room() {
                                         key={cardVal}
                                         onClick={() => handleVote(cardVal)}
                                         className={`w-14 h-20 sm:w-16 sm:h-24 md:w-20 md:h-28 rounded-xl border-2 flex items-center justify-center transition-all duration-200 transform hover:-translate-y-4 hover:shadow-xl ${isSelected
-                                            ? 'bg-blue-600 text-white border-blue-700 shadow-blue-500/30 shadow-lg -translate-y-4'
-                                            : 'bg-white border-gray-200 text-gray-700 hover:border-blue-300'
+                                            ? 'bg-blue-600 dark:bg-blue-700 text-white border-blue-700 dark:border-blue-600 shadow-blue-500/30 dark:shadow-blue-900/50 shadow-lg -translate-y-4'
+                                            : 'bg-white dark:bg-zinc-800 border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-gray-200 hover:border-blue-300 dark:hover:border-blue-500'
                                             }`}
                                     >
                                         <span className="text-xl md:text-3xl font-bold">{cardVal}</span>

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+    <!-- Background oval mimicking the poker table -->
+    <rect x="10" y="25" width="80" height="50" rx="25" fill="#2563eb" fill-opacity="0.1" stroke="#2563eb" stroke-width="4"/>
+    
+    <!-- Left Card -->
+    <g transform="translate(30, 50) rotate(-15) translate(-15, -20)">
+        <rect width="30" height="40" rx="4" fill="white" stroke="#e2e8f0" stroke-width="2"/>
+        <text x="15" y="26" font-family="Arial, sans-serif" font-weight="bold" font-size="16" fill="#3b82f6" text-anchor="middle">5</text>
+    </g>
+
+    <!-- Right Card -->
+    <g transform="translate(70, 50) rotate(15) translate(-15, -20)">
+        <rect width="30" height="40" rx="4" fill="white" stroke="#e2e8f0" stroke-width="2"/>
+        <text x="15" y="26" font-family="Arial, sans-serif" font-weight="bold" font-size="16" fill="#3b82f6" text-anchor="middle">8</text>
+    </g>
+
+    <!-- Center Card (Selected) -->
+    <g transform="translate(50, 50) translate(-15, -25)">
+        <rect width="30" height="40" rx="4" fill="#2563eb" stroke="#1d4ed8" stroke-width="2"/>
+        <text x="15" y="26" font-family="Arial, sans-serif" font-weight="bold" font-size="16" fill="white" text-anchor="middle">13</text>
+    </g>
+</svg>
