@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from './ui/button';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../lib/firebase';
-import { doc, onSnapshot, collection, updateDoc, setDoc, query, deleteDoc } from 'firebase/firestore';
+import { doc, onSnapshot, collection, updateDoc, setDoc, query, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { Input } from './ui/input';
 import { Share, User as UserIcon, Timer, LogOut } from 'lucide-react';
 import { toast } from "sonner";
@@ -15,18 +15,72 @@ import {
 } from "./ui/dropdown-menu";
 
 const FIBONACCI_CARDS = ['0', '1', '2', '3', '5', '8', '13', '21', '34', '55', '89', '?', '☕'];
+const STALE_USER_THRESHOLD_MS = 45_000;
+
+type RoomData = {
+    name: string;
+    revealed: boolean;
+    timerEndsAt: number | null;
+};
+
+type RoomUser = {
+    id: string;
+    name: string;
+    vote: string | null;
+    lastSeenMs: number | null;
+};
+
+const INITIAL_ROOM: RoomData = {
+    name: 'Loading...',
+    revealed: false,
+    timerEndsAt: null,
+};
+
+function toMillis(value: unknown): number | null {
+    if (typeof value === 'number') {
+        return value;
+    }
+
+    if (value && typeof value === 'object' && 'toMillis' in value) {
+        const maybeTimestamp = value as { toMillis?: () => number };
+        if (typeof maybeTimestamp.toMillis === 'function') {
+            return maybeTimestamp.toMillis();
+        }
+    }
+
+    return null;
+}
+
+function getFallbackSeatStyle(index: number, totalUsers: number) {
+    const fallbackIndex = Math.max(index - 4, 0);
+    const fallbackCount = Math.max(totalUsers - 4, 1);
+    const angle = (fallbackIndex / fallbackCount) * Math.PI * 2;
+    const x = Math.cos(angle) * 250;
+    const y = Math.sin(angle) * 110;
+
+    return {
+        left: `calc(50% + ${Math.round(x)}px)`,
+        top: `calc(50% + ${Math.round(y)}px)`,
+        transform: 'translate(-50%, -50%)',
+    };
+}
 
 export function Room() {
     const { id: roomId } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { user, displayName, updateDisplayName, signIn } = useAuth();
 
-    const [room, setRoom] = useState<any>({ name: 'Loading...', revealed: false });
-    const [users, setUsers] = useState<any[]>([]);
+    const [room, setRoom] = useState<RoomData>(INITIAL_ROOM);
+    const [users, setUsers] = useState<RoomUser[]>([]);
     const [showNameDialog, setShowNameDialog] = useState(false);
     const [temporaryName, setTemporaryName] = useState('');
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
     const [isJoining, setIsJoining] = useState(false);
+
+    const myVote = useMemo(
+        () => users.find((u) => u.id === user?.uid)?.vote ?? null,
+        [users, user?.uid],
+    );
 
     // Check display name and auth state
     useEffect(() => {
@@ -34,6 +88,16 @@ export function Room() {
             setShowNameDialog(true);
         }
     }, [user, displayName]);
+
+    const toggleReveal = useCallback(async () => {
+        if (!roomId) return;
+        try {
+            const roomRef = doc(db, 'rooms', roomId);
+            await updateDoc(roomRef, { revealed: !room.revealed });
+        } catch {
+            setRoom((prev) => ({ ...prev, revealed: !prev.revealed }));
+        }
+    }, [roomId, room.revealed]);
 
     // Firestore Subscriptions
     useEffect(() => {
@@ -44,14 +108,38 @@ export function Room() {
             const roomRef = doc(db, 'rooms', roomId);
             const unsubRoom = onSnapshot(roomRef, (snapshot) => {
                 if (snapshot.exists()) {
-                    setRoom(snapshot.data());
+                    const roomData = snapshot.data() as Partial<{
+                        name: string;
+                        revealed: boolean;
+                        timerEndsAt: unknown;
+                    }>;
+                    setRoom({
+                        name: roomData.name ?? 'Untitled Room',
+                        revealed: Boolean(roomData.revealed),
+                        timerEndsAt: toMillis(roomData.timerEndsAt),
+                    });
                 }
             });
 
             // Subscribe to Users in Room
             const usersRef = collection(db, 'rooms', roomId, 'users');
             const unsubUsers = onSnapshot(query(usersRef), (snapshot) => {
-                const usersList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                const now = Date.now();
+                const usersList: RoomUser[] = snapshot.docs
+                    .map((d) => {
+                        const data = d.data() as Partial<{
+                            name: string;
+                            vote: string | null;
+                            lastSeen: unknown;
+                        }>;
+                        return {
+                            id: d.id,
+                            name: data.name ?? 'Anonymous',
+                            vote: data.vote ?? null,
+                            lastSeenMs: toMillis(data.lastSeen),
+                        };
+                    })
+                    .filter((u) => u.lastSeenMs === null || now - u.lastSeenMs < STALE_USER_THRESHOLD_MS);
                 setUsers(usersList);
             });
 
@@ -59,26 +147,57 @@ export function Room() {
                 unsubRoom();
                 unsubUsers();
             };
-        } catch (e) {
+        } catch {
             console.warn("Firestore not configured yet. Using mock data.");
-            setRoom({ name: 'Mock Room (Firestore missing)', revealed: false });
+            setRoom({ name: 'Mock Room (Firestore missing)', revealed: false, timerEndsAt: null });
             setUsers([
-                { id: '1', name: 'Alice', vote: '5' },
-                { id: '2', name: 'Bob', vote: null },
+                { id: '1', name: 'Alice', vote: '5', lastSeenMs: Date.now() },
+                { id: '2', name: 'Bob', vote: null, lastSeenMs: Date.now() },
             ]);
         }
     }, [roomId, user]);
 
-    // Join Room implicitly when user exists and has a name
+    // Presence heartbeat + best-effort leave for browser/tab close.
     useEffect(() => {
-        if (user && displayName && roomId) {
+        if (!user || !displayName || !roomId) return;
+
+        const userDocRef = doc(db, 'rooms', roomId, 'users', user.uid);
+
+        const upsertPresence = async () => {
             try {
-                const userDocRef = doc(db, 'rooms', roomId, 'users', user.uid);
-                setDoc(userDocRef, { name: displayName, vote: null }, { merge: true });
-            } catch (e) {
+                await setDoc(
+                    userDocRef,
+                    {
+                        name: displayName,
+                        vote: null,
+                        lastSeen: serverTimestamp(),
+                    },
+                    { merge: true },
+                );
+            } catch {
                 console.warn("Could not join room via Firestore (mocking).");
             }
-        }
+        };
+
+        const leaveRoomBestEffort = () => {
+            void deleteDoc(userDocRef).catch(() => { });
+        };
+
+        void upsertPresence();
+
+        const heartbeatId = window.setInterval(() => {
+            void updateDoc(userDocRef, { lastSeen: serverTimestamp() }).catch(() => { });
+        }, 15_000);
+
+        window.addEventListener('beforeunload', leaveRoomBestEffort);
+        window.addEventListener('pagehide', leaveRoomBestEffort);
+
+        return () => {
+            window.clearInterval(heartbeatId);
+            window.removeEventListener('beforeunload', leaveRoomBestEffort);
+            window.removeEventListener('pagehide', leaveRoomBestEffort);
+            leaveRoomBestEffort();
+        };
     }, [user, displayName, roomId]);
 
     // Timer Effect
@@ -88,8 +207,10 @@ export function Room() {
             return;
         }
 
+        const timerEndsAt = room.timerEndsAt;
+
         const intervalId = setInterval(() => {
-            const remaining = Math.max(0, Math.ceil((room.timerEndsAt - Date.now()) / 1000));
+            const remaining = Math.max(0, Math.ceil((timerEndsAt - Date.now()) / 1000));
             setTimeLeft(remaining);
 
             if (remaining === 0) {
@@ -101,10 +222,10 @@ export function Room() {
         }, 1000);
 
         // Initial tick
-        setTimeLeft(Math.max(0, Math.ceil((room.timerEndsAt - Date.now()) / 1000)));
+        setTimeLeft(Math.max(0, Math.ceil((timerEndsAt - Date.now()) / 1000)));
 
         return () => clearInterval(intervalId);
-    }, [room?.timerEndsAt, room?.revealed]);
+    }, [room?.timerEndsAt, room?.revealed, toggleReveal]);
 
     const handleSaveName = async () => {
         if (!temporaryName.trim() || isJoining) return;
@@ -126,45 +247,22 @@ export function Room() {
             try {
                 const userDocRef = doc(db, 'rooms', roomId, 'users', user.uid);
                 await deleteDoc(userDocRef);
-            } catch (e) {
-                console.error("Error leaving room", e);
+            } catch (error) {
+                console.error("Error leaving room", error);
             }
         }
         navigate('/');
     };
-
-    // Remove user from room on close
-    useEffect(() => {
-        const handleUnload = () => {
-            if (user?.uid && roomId) {
-                // Best effort to remove user from active room list on tab close
-                const userDocRef = doc(db, 'rooms', roomId, 'users', user.uid);
-                deleteDoc(userDocRef).catch(() => { });
-            }
-        };
-        window.addEventListener('beforeunload', handleUnload);
-        return () => window.removeEventListener('beforeunload', handleUnload);
-    }, [user, roomId]);
 
     const handleVote = async (value: string) => {
         if (!user || !roomId) return;
         try {
             const userDocRef = doc(db, 'rooms', roomId, 'users', user.uid);
             await updateDoc(userDocRef, { vote: value });
-        } catch (e) {
+        } catch {
             console.warn("Vote mocked:", value);
             // Mocking local state
             setUsers(prev => prev.map(u => u.id === user?.uid || u.name === 'Alice' ? { ...u, vote: value } : u));
-        }
-    };
-
-    const toggleReveal = async () => {
-        if (!roomId) return;
-        try {
-            const roomRef = doc(db, 'rooms', roomId);
-            await updateDoc(roomRef, { revealed: !room.revealed });
-        } catch (e) {
-            setRoom((prev: any) => ({ ...prev, revealed: !prev.revealed }));
         }
     };
 
@@ -176,9 +274,9 @@ export function Room() {
                 ? { timerEndsAt: Date.now() + seconds * 1000, revealed: false }
                 : { timerEndsAt: null }; // Cancel timer logic
             await updateDoc(roomRef, timerObj);
-        } catch (e) {
+        } catch {
             console.warn("Timer mocked");
-            setRoom((prev: any) => ({
+            setRoom((prev) => ({
                 ...prev,
                 timerEndsAt: seconds > 0 ? Date.now() + seconds * 1000 : null,
                 revealed: false
@@ -196,8 +294,8 @@ export function Room() {
                 const userDoc = doc(db, 'rooms', roomId, 'users', u.id);
                 await updateDoc(userDoc, { vote: null });
             }
-        } catch (e) {
-            setRoom((prev: any) => ({ ...prev, revealed: false, timerEndsAt: null }));
+        } catch {
+            setRoom((prev) => ({ ...prev, revealed: false, timerEndsAt: null }));
             setUsers(prev => prev.map(u => ({ ...u, vote: null })));
         }
     }
@@ -289,16 +387,17 @@ export function Room() {
                             // Normally this requires math or flex grids; we simulate with absolute positioning
                             // 0: top, 1: bottom, 2: left, 3: right, etc.
                             let positionClasses = "";
+                            let positionStyle: CSSProperties | undefined;
                             if (i === 0) positionClasses = "-top-16 left-1/2 -translate-x-1/2";
                             else if (i === 1) positionClasses = "-bottom-16 left-1/2 -translate-x-1/2";
                             else if (i === 2) positionClasses = "-left-20 top-1/2 -translate-y-1/2";
                             else if (i === 3) positionClasses = "-right-20 top-1/2 -translate-y-1/2";
-                            else positionClasses = `top-${(i * 10) % 100} right-${(i * 10) % 100}`; // simple fallback
+                            else positionStyle = getFallbackSeatStyle(i, users.length);
 
                             const isMe = user?.uid === u.id;
 
                             return (
-                                <div key={u.id} className={`absolute flex flex-col items-center gap-2 ${positionClasses}`}>
+                                <div key={u.id} className={`absolute flex flex-col items-center gap-2 ${positionClasses}`} style={positionStyle}>
                                     {/* The Card */}
                                     {u.vote ? (
                                         <div className={`w-14 h-20 rounded-lg flex items-center justify-center shadow-md border-2 transition-all ${room.revealed ? 'bg-white dark:bg-zinc-800 border-blue-200 dark:border-zinc-600 text-blue-600 dark:text-blue-400' : 'bg-blue-500 dark:bg-blue-700 border-blue-600 dark:border-blue-800'}`}>
@@ -330,7 +429,6 @@ export function Room() {
                         <div className="max-w-6xl mx-auto flex items-center justify-center flex-wrap gap-2 md:gap-4">
                             <span className="w-full text-center text-gray-500 dark:text-gray-400 font-medium mb-2 uppercase tracking-wide text-xs">Choose your card</span>
                             {FIBONACCI_CARDS.map(cardVal => {
-                                const myVote = users.find(u => u.id === user?.uid)?.vote;
                                 const isSelected = myVote === cardVal;
                                 return (
                                     <button

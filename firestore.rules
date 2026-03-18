@@ -10,9 +10,9 @@ service cloud.firestore {
       // Anyone authenticated can create a room, read a room, or update it
       allow read, create: if isAuthenticated();
       
-      // We only allow updating the "revealed" status
+      // Only allow updating controlled room fields.
       allow update: if isAuthenticated() 
-                    && request.resource.data.keys().hasAny(['revealed', 'name']);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revealed', 'name', 'timerEndsAt']);
       
       // Users inside a specific room
       match /users/{userId} {
